@@ -26,14 +26,11 @@ export function startLoader(onReady, compact = false) {
   const suffix = document.getElementById('load-suffix');
   const bar = document.getElementById('load-bar');
   const track = bar.parentElement;
-  const skip = document.getElementById('skip-load');
   const runner = document.getElementById('loader-runner');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const started = performance.now();
   const numberLabel = label.firstChild;
   let runnerReady = false;
-  let finished = false;
-  let frame;
 
   if (!reduced) {
     runner.addEventListener('load', () => {runnerReady = true;}, {once: true});
@@ -55,9 +52,6 @@ export function startLoader(onReady, compact = false) {
   }
 
   function finish() {
-    if (finished) return;
-    finished = true;
-    cancelAnimationFrame(frame);
     showProgress({percent: 100, run: 1});
     document.body.classList.add('ready');
     onReady();
@@ -69,12 +63,9 @@ export function startLoader(onReady, compact = false) {
       finish();
       return;
     }
-    if (elapsed > 620) skip.classList.add('available');
     showProgress(loaderState(elapsed));
-    frame = requestAnimationFrame(advance);
+    requestAnimationFrame(advance);
   }
 
-  if (compact) skip.classList.add('available');
-  skip.addEventListener('click', finish, {once: true});
-  frame = requestAnimationFrame(advance);
+  requestAnimationFrame(advance);
 }

@@ -58,7 +58,7 @@ function gridPose(i, w, h) {
   const index = gridOrder.indexOf(i);
   if (index < 0) return pose(-w*.23,0,-1400,0,0,0,.15,0);
   const aspect = mobile ? 285/210 : 330/250;
-  const cell = Math.min(w * (mobile ? .86 : .50) / 4, h * (mobile ? .56 : .80) / (4 * aspect));
+  const cell = Math.min(w * (mobile ? .99 : .50) / 4, h * (mobile ? .71 : .80) / (4 * aspect));
   const rx = mobile ? 4 : 7, ry = mobile ? -3 : -7, rz = mobile ? -1 : -3;
   const [pitch, yaw, roll] = [rx, ry, rz].map(deg => deg * Math.PI / 180);
   const col = index % 4 - 1.5, row = Math.floor(index / 4) - 1.5;
@@ -69,7 +69,7 @@ function gridPose(i, w, h) {
   const depth = -x * Math.sin(yaw);
   return pose(
     x * Math.cos(yaw) - w * (mobile ? .0 : .215),
-    y * Math.cos(pitch) - depth * Math.sin(pitch) + h * (mobile ? .155 : .015),
+    y * Math.cos(pitch) - depth * Math.sin(pitch) + h * (mobile ? .142 : .015),
     y * Math.sin(pitch) + depth * Math.cos(pitch) - 100,
     rx,ry,rz,cell * .91 / (mobile ? 210 : 250),1
   );
@@ -99,7 +99,7 @@ function focusPose(k, i, n, w, h) {
     const frame = focusSlots[front] ?? focusSlots[0];
     const lens = lensFor(w), projection = lens / (lens-frame.z);
     const size = mobile
-      ? Math.min(1.02, h * frame.phoneHeight / (285 * projection), w * frame.phoneWidth / (210 * projection))
+      ? Math.min(1.22, h * frame.phoneHeight * 1.17 / (285 * projection), w * frame.phoneWidth * 1.19 / (210 * projection))
       : Math.min(frame.size, h * frame.height / (330 * projection), w * .34 / (250 * projection));
     return pose(w*(mobile ? frame.phoneX : frame.x), h*(mobile ? frame.phoneY : frame.y), frame.z,
       frame.rx, frame.ry, frame.rz, size, 1);

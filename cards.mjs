@@ -247,7 +247,7 @@ function paintBendColumns(model, intensity, direction, highlight, padding) {
   const sourceAt = x => Math.asin(Math.max(-edge,Math.min(edge,x/bufferWidth-.5)) * curvature) / curvature;
   const left = Math.floor(bufferWidth * (.5-edge)), right = Math.ceil(bufferWidth * (.5+edge));
   let start = sourceAt(left);
-  const stripWidth = bufferWidth > 360 ? 2 : 1;
+  const stripWidth = Math.max(2, Math.ceil(bufferWidth / 128));
   for (let x=left; x<right; x+=stripWidth) {
     const span = Math.min(stripWidth,right-x);
     const end = sourceAt(x+span);

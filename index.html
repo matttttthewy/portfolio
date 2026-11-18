@@ -14,7 +14,7 @@
 <body>
   <div id="loader" aria-label="Загрузка сайта">
     <img id="loader-runner" data-src="assets/bars-run.webp" alt="" hidden fetchpriority="high">
-    <div class="load-inner"><div class="load-type" aria-hidden="true"><span>итмоня<span id="load-suffix" style="visibility:hidden"> на</span></span> <strong id="load-label" style="visibility:hidden">0<span>%</span></strong></div><div class="load-track" role="progressbar" aria-label="Загрузка" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="load-bar"></i></div><button id="skip-load" type="button">перейти к истории</button></div>
+    <div class="load-inner"><div class="load-type" aria-hidden="true"><span>итмоня<span id="load-suffix" style="visibility:hidden"> на</span></span> <strong id="load-label" style="visibility:hidden">0<span>%</span></strong></div><div class="load-track" role="progressbar" aria-label="Загрузка" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="load-bar"></i></div></div>
   </div>
   <header class="masthead" id="masthead">
     <a href="#" id="home" aria-label="В начало">Матвей Грицик<span class="small-name"> / ИТМО</span></a>
@@ -31,6 +31,7 @@
         <div id="focus" aria-live="off"><h2 id="focus-title"></h2><div id="focus-description"></div></div>
         <div id="effect-copy" aria-hidden="true"></div>
         <div id="card-space"><canvas class="phone-raster" id="phone-cards" aria-hidden="true" hidden></canvas><canvas class="phone-raster" id="phone-cards-fallback" aria-hidden="true" hidden></canvas><div id="cards"></div></div>
+        <div id="focus-layer"></div>
         <div id="flare" aria-hidden="true"></div>
         <div id="gallery-zone" role="region" tabindex="-1" inert aria-roledescription="карусель" aria-label="Все достижения. Колесо и горизонтальный свайп — листать. Вертикальный свайп — прокрутить страницу. Стрелки влево и вправо — листать с клавиатуры."></div>
         <div id="gallery-caption">
