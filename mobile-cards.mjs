@@ -81,13 +81,13 @@ function drawPhoneStrip(ctx, texture, left, right, topLeft, topRight, bottomRigh
   ctx.restore();
 }
 
-function phoneFrame(width) {
+function phoneFrame(width,desktop) {
   return width < 700 ? {edge:.03,upper:.12,lower:.50,radius:18}
-    : {edge:.014,upper:.11,lower:.50,radius:27};
+    : {edge:.014,upper:.11,lower:desktop?.21:.50,radius:27};
 }
 
-function phoneClip(ctx,width,height,arrival) {
-  const {edge,upper,lower,radius}=phoneFrame(width);
+function phoneClip(ctx,width,height,arrival,desktop) {
+  const {edge,upper,lower,radius}=phoneFrame(width,desktop);
   const x=width*edge*arrival, y=height*upper*arrival;
   const w=width-2*x, h=height*(1-(upper+lower)*arrival);
   const r=Math.min(radius*arrival,w*.5,h*.5);
@@ -166,14 +166,14 @@ function phoneGraphics(canvas) {
   gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
   gl.clearColor(0,0,0,0);
 
-  function begin(viewWidth,viewHeight,scale,arrival) {
+  function begin(viewWidth,viewHeight,scale,arrival,desktop) {
     width=viewWidth;
     height=viewHeight;
     const w=canvas.width,h=canvas.height;
     gl.viewport(0,0,w,h);
     gl.disable(gl.SCISSOR_TEST);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    const {edge,upper,lower,radius}=phoneFrame(width);
+    const {edge,upper,lower,radius}=phoneFrame(width,desktop);
     const left=Math.round(w*edge*arrival);
     const bottom=Math.round(h*lower*arrival);
     const top=h-Math.round(h*upper*arrival);
@@ -256,7 +256,7 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
 
   }
 
-  function draw(nodes,poses,progress,arrival,deformation,frontIndex,frontOnTop) {
+  function draw(nodes,poses,progress,arrival,deformation,frontIndex,frontOnTop,desktop = false) {
     const cardWidth = width < 700 ? 210 : 250;
     const cardHeight = width < 700 ? 285 : 330;
     const effectScene=progress>14.70 && progress<18.90;
@@ -292,20 +292,20 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
       ? new Set([...visible].sort((a,b)=>b.area-a.area).slice(0,gpu?6:2).map(card=>card.i))
       : null;
 
-    if (gpu) gpu.begin(width,height,paintScale,arrival);
+    if (gpu) gpu.begin(width,height,paintScale,arrival,desktop);
     else {
       if (!ctx) return;
       ctx.setTransform(paintScale,0,0,paintScale,0,0);
       ctx.clearRect(0,0,width,height);
       ctx.save();
-      if (arrival>.002) phoneClip(ctx,width,height,arrival);
+      if (arrival>.002) phoneClip(ctx,width,height,arrival,desktop);
     }
     for (const {i,placement,points,area} of visible) {
       const texture = getCardTexture(nodes[i],2.30);
       if (!texture) continue;
       const curve = bent?.has(i) ? deformation * Math.min(1,area / 3800) : 0;
       const colorDepth = progress>=3.2 && progress<13 ? .46*Math.max(0,Math.min(1,(-placement.z-65)/620)) : 0;
-      const alpha=progress<13 ? 1 : placement.o;
+      const alpha=progress<13 ? (desktop ? Math.min(1,placement.o/.30) : 1) : placement.o;
       const at=curve>.035
         ? projection(placement,width,height,cardWidth,cardHeight,curve,Math.sin((i%5-2)*.42+progress*.21))
         : null;

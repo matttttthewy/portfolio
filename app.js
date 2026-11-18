@@ -7,9 +7,9 @@ import {END,OPENING_END,SCROLL_END,clamp,mix,range,storyProgress,cardPose,focusS
 
 const $=id=>document.getElementById(id);
 const root=document.documentElement, stage=$('viewport'), cards=$('cards');
-const focusLayer=$('focus-layer');
 const motionPreference=matchMedia('(prefers-reduced-motion: reduce)');
 const coarseScreen=matchMedia('(any-pointer: coarse) and (max-width: 1024px)');
+const webKitDesktop=/AppleWebKit/.test(navigator.userAgent)&&!/Chrom(?:e|ium)|Edg\//.test(navigator.userAgent);
 const phoneCanvas=$('phone-cards');
 const zone=$('gallery-zone');
 const backdrop=$('backdrop');
@@ -32,7 +32,7 @@ let lastEffect=-1, lastFocus=-1, lastGallery=-1;
 let previousScene='';
 let lastBackdrop=-Infinity, lastBackdropSize='', backdropWasLight=false;
 let phoneStage=false, phoneRenderer=null, usePhoneCanvas=false, frontCard=null;
-let layeredIndex=-1;
+let lastBendPaint=-Infinity;
 let w=0,h=innerHeight,unit=500,sceneLength=SCROLL_END*unit;
 let target=0,current=0,last=performance.now(),angle=0,angleTarget=0,ready=false;
 const scrollTarget=()=>scrollY>=sceneLength-.55 ? SCROLL_END : clamp(scrollY/unit,0,SCROLL_END);
@@ -55,16 +55,18 @@ function resize(){
   if (modeChanged&&!phoneStage) themeColor.content='#090608';
   if (phoneStage) {
     root.style.removeProperty('--view-height');
-    if (!phoneRenderer) phoneRenderer=createPhoneRenderer(phoneCanvas,$('phone-cards-fallback'),()=>{previousScene='';});
   } else {
     root.style.setProperty('--view-height',innerHeight+'px');
+  }
+  if ((phoneStage||webKitDesktop)&&!phoneRenderer) {
+    phoneRenderer=createPhoneRenderer(phoneCanvas,$('phone-cards-fallback'),()=>{previousScene='';});
   }
 
   w=phoneStage?root.clientWidth:innerWidth;
   h=phoneStage?(stage.clientHeight||innerHeight):innerHeight;
   usePhoneCanvas=phoneStage && phoneRenderer!==null;
   root.toggleAttribute('data-phone-renderer',usePhoneCanvas);
-  if (usePhoneCanvas) phoneRenderer.resize(w,h,devicePixelRatio);
+  phoneRenderer?.resize(w,h,devicePixelRatio);
 
   if (!modeChanged && oldWidth===w && oldHeight===h) return;
   // Keep scroll progress stable when the mobile browser toolbar expands or collapses.
@@ -113,9 +115,13 @@ function render(now){
   const reduced=motionPreference.matches;
   const afterStage=scrollY>sceneLength+h*.035;
   const atEnd=target===SCROLL_END;
-  const follow=reduced || (afterStage && atEnd && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-dt*(phoneStage?22:13));
+  const followStep=phoneStage?dt:Math.min(dt,.028);
+  const follow=reduced || (afterStage && atEnd && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*(phoneStage?22:13));
   current=Math.abs(target-current)<.00005 ? target : mix(current,target,follow);
   const p=storyProgress(current),arrival=range(p,18.8,20);
+  // Desktop WebKit draws the focus deck and the bent cards on one shared surface.
+  const desktopCanvas=!phoneStage&&webKitDesktop&&phoneRenderer!==null
+    && p>=3.22&&p<18.88;
   const galleryVisible=scrollY<sceneLength+h*.65&&!document.hidden;
   const settled=p>19.985&&atEnd;
   const galleryInteractive=settled;
@@ -151,12 +157,15 @@ function render(now){
   }
   let hit=null;
   const deformation=phoneStage&&!usePhoneCanvas ? 0 : range(p,15.38,16.9)*(1-range(p,18.13,18.88));
+  const repaintBend=deformation>0&&now-lastBendPaint>=31;
+  if (repaintBend) lastBendPaint=now;
   const lens=w<700?900:1100;
+  const focusDepth=!usePhoneCanvas&&p>=3.22&&p<13;
   const opaqueScene=p<13;
   if (opaqueScene) for (const card of poses) {
     card.s*=mix(.025,1,range(card.o,0,.78));
   }
-  if (!usePhoneCanvas&&pointer&&!reduced&&ready&&!drag&&now-lastInteraction>260) {
+  if (!usePhoneCanvas&&!desktopCanvas&&pointer&&!reduced&&ready&&!drag&&now-lastInteraction>260) {
     const bounds=stage.getBoundingClientRect();
     const local={x:pointer.x-bounds.left,y:pointer.y-bounds.top};
     const clip=arrival*.21;
@@ -168,6 +177,8 @@ function render(now){
   stage.dataset.hoverCard=hit ? achievements[hit.index].id : '';
   stage.style.setProperty('--gallery-frame',arrival.toFixed(4));
   stage.toggleAttribute('data-opening',current<OPENING_END);
+  stage.toggleAttribute('data-focus-depth',focusDepth);
+  stage.toggleAttribute('data-desktop-canvas',desktopCanvas);
   stage.toggleAttribute('data-gallery-framing',arrival>0);
   stage.toggleAttribute('data-gallery-ready',galleryInteractive);
   if (phoneStage) {
@@ -181,14 +192,7 @@ function render(now){
 
   const {index:focusIndex,strength:focusStrength}=focusState(p);
   const frontIndex=focusStrength>.16?focusIndex:-1;
-  // Keep the lead outside the shared 3D stack, which WebKit can composite in DOM order.
-  const nextLayeredIndex=usePhoneCanvas?-1:frontIndex;
-  if (layeredIndex!==nextLayeredIndex) {
-    if (layeredIndex>=0) cards.insertBefore(nodes[layeredIndex],nodes[layeredIndex+1]??null);
-    if (nextLayeredIndex>=0) focusLayer.append(nodes[nextLayeredIndex]);
-    layeredIndex=nextLayeredIndex;
-  }
-  const nextFront=usePhoneCanvas && frontIndex>=0 && nodes[frontIndex].firstElementChild.classList.contains('has-cover')
+  const nextFront=(usePhoneCanvas||desktopCanvas) && frontIndex>=0 && nodes[frontIndex].firstElementChild.classList.contains('has-cover')
     ? nodes[frontIndex] : null;
   if (frontCard!==nextFront) {
     frontCard?.removeAttribute('data-phone-front');
@@ -198,14 +202,14 @@ function render(now){
       frontCard.hidden=false;
       frontCard.style.opacity='1';
       frontCard.style.borderRadius='4px';
-      frontCard.style.removeProperty('--depth-filter');
+      frontCard.style.removeProperty('--depth-shade');
       frontCard.style.setProperty('--light-alpha','0');
     }
   }
   if (frontCard) frontCard.style.transform=transform(poses[frontIndex]);
 
   const lightFollow=1-Math.exp(-dt*11);
-  if (usePhoneCanvas) phoneRenderer.draw(nodes,poses,p,arrival,deformation,frontIndex,!!frontCard);
+  if (usePhoneCanvas||desktopCanvas) phoneRenderer.draw(nodes,poses,p,arrival,deformation,frontIndex,!!frontCard,desktopCanvas);
   else nodes.forEach((el,i)=>{
     const pose=poses[i], light=lights[i];
     const visiblyPresent=pose.o>=.002;
@@ -229,10 +233,13 @@ function render(now){
     }
     el.style.borderRadius=mix(4,20,arrival)+'px';
     el.style.transform=transform(pose);
-    el.style.opacity=opaqueScene ? '1' : pose.o.toFixed(4);
+    const opacity=opaqueScene&&!phoneStage ? range(pose.o,.018,.30) : opaqueScene ? 1 : pose.o;
+    el.style.opacity=opacity.toFixed(4);
+    // Explicit depth avoids reparenting a card when its caption fades or changes.
+    el.style.zIndex=focusDepth?Math.round(pose.z*10)+20000:'';
     const depthShade=p>=3.2&&p<13 ? (1-range(pose.z,-685,-65))*.51 : 0;
-    if (depthShade>.001) el.style.setProperty('--depth-filter',`brightness(${(1-depthShade).toFixed(3)})`);
-    else el.style.removeProperty('--depth-filter');
+    if (depthShade>.001) el.style.setProperty('--depth-shade',depthShade.toFixed(3));
+    else el.style.removeProperty('--depth-shade');
     if (light.strength>0||el.style.getPropertyValue('--light-alpha')!=='0') {
       el.style.setProperty('--light-x',`${light.x*100}%`);
       el.style.setProperty('--light-y',`${light.y*100}%`);
@@ -241,6 +248,10 @@ function render(now){
     if (!deformation&&!el.classList.contains('is-bent')) return;
     const projection=lens/(lens-pose.z);
     const onScreen=pose.o>.02&&Math.abs(pose.x*projection)<w*.66&&Math.abs(pose.y*projection)<h*.74;
+    if (onScreen&&deformation>=.001&&!repaintBend) {
+      previousScene='';
+      return;
+    }
     const detail=Math.max(1.18,projection*pose.s*1.32*Math.min(devicePixelRatio||1,2.4));
     bendCard(el,onScreen?deformation:0,Math.sin((i%5-2)*.42+p*.21),detail,light);
   });

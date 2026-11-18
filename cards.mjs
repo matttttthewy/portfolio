@@ -280,7 +280,7 @@ export function bendCard(node, intensity, direction, detail, highlight) {
     return;
   }
   const renderer = getBendRenderer();
-  const density = Math.max(1,Math.min(renderer ? 3.2 : 2.35,Math.ceil(detail*4)/4));
+  const density = Math.max(1,Math.min(renderer ? 2.15 : 1.75,Math.ceil(detail*4)/4));
   const warpStep = renderer ? 500 : 185;
   const warp = Math.max(.001,Math.round(intensity*warpStep)/warpStep);
   const side = Math.round(direction*warpStep)/warpStep;

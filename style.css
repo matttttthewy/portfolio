@@ -262,17 +262,22 @@
 #focus p {font-size:clamp(14px,1.25vw,19px);line-height:1.46;max-width:34em;margin:0}
 #focus p + p {margin-top:.57em}
 #focus:is([data-item="mobility"],[data-item="yagodnoe"],[data-item="youngpros"]) h2 {font-size:clamp(23px,3.32vw,60px)}
-.card-face {filter:var(--depth-filter,none)}
-#focus-layer {
+[data-focus-depth] .card-face::before {
+  content:'';
   position:absolute;
   inset:0;
-  z-index:2;
-  perspective:1100px;
-  perspective-origin:50% 47%;
+  z-index:3;
+  background:rgb(0 0 0 / var(--depth-shade,0));
   pointer-events:none;
 }
+[data-focus-depth] #card-space {perspective:none}
+[data-focus-depth] #cards {
+  transform-style:flat;
+  perspective:1100px;
+  perspective-origin:50% 47%;
+}
 @media(max-width:699.99px) {
-  #focus-layer {perspective:900px}
+  [data-focus-depth] #cards {perspective:900px}
 }
 [data-opening] .card::before {
   content:'';
@@ -357,10 +362,11 @@
   perspective-origin:50% 47%;
 }
 [data-phone-renderer] #cards > .card:not([data-phone-front]) {display:none}
+[data-desktop-canvas] #cards > .card:not([data-phone-front]) {display:none}
 @media(max-width:699.99px) {
   [data-phone-renderer] #cards {perspective:900px}
 }
-[data-phone-renderer] .phone-raster:not([hidden]) {
+:is([data-phone-renderer],[data-desktop-canvas]) .phone-raster:not([hidden]) {
   display:block;
   position:absolute;
   inset:0;
