@@ -121,6 +121,7 @@ precision highp float;
 precision mediump float;
 #endif
 uniform sampler2D cover;
+uniform float detailBias;
 uniform vec4 frame;
 uniform vec2 frameScale;
 uniform float radius;
@@ -129,7 +130,7 @@ uniform float shade;
 uniform vec3 light;
 varying vec2 surface;
 void main() {
-  vec4 color=texture2D(cover,surface);
+  vec4 color=texture2D(cover,surface,detailBias);
   color.rgb=mix(color.rgb,vec3(.043,.024,.047)*color.a,shade);
   if (light.z>.001) {
     vec2 offset=(surface-light.xy)*vec2(1.0,1.25);
@@ -166,11 +167,11 @@ function phoneGraphics(canvas) {
   gl.linkProgram(program);
   shaders.forEach(shader=>gl.deleteShader(shader));
   if (!gl.getProgramParameter(program,gl.LINK_STATUS)) return null;
-  const uniforms=Object.fromEntries(['frame','frameScale','radius','opacity','shade','light','depthBoost'].map(key=>[key,gl.getUniformLocation(program,key)]));
+  const uniforms=Object.fromEntries(['frame','frameScale','radius','opacity','shade','light','depthBoost','detailBias'].map(key=>[key,gl.getUniformLocation(program,key)]));
   const info=gl.getExtension('WEBGL_debug_renderer_info');
   const software=info&&/swiftshader|llvmpipe|software/i.test(gl.getParameter(info.UNMASKED_RENDERER_WEBGL));
   const anisotropy=webgl2&&!software&&gl.getExtension('EXT_texture_filter_anisotropic');
-  const samples=anisotropy?Math.min(2,gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT)):1;
+  const samples=anisotropy?Math.min(4,gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT)):1;
   const buffer=gl.createBuffer();
   const batches=[];
   const textures=new WeakMap();
@@ -179,6 +180,7 @@ function phoneGraphics(canvas) {
   let opacityValue,shadeValue,boostValue,highlightOn=false;
 
   gl.useProgram(program);
+  gl.uniform1f(uniforms.detailBias,webgl2&&!software?-.28:0);
   gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
   gl.activeTexture(gl.TEXTURE0);
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);
@@ -328,12 +330,14 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
     return true;
   }
 
-  function draw(nodes,poses,progress,arrival,deformation,focusIndex,focusStrength,lights) {
+  function draw(nodes,poses,progress,arrival,deformation,focusIndex,focusStrength,lights,detailFrame=false) {
     const desktop=!!lights;
     const cardWidth = width < 700 ? 210 : 250;
     const cardHeight = width < 700 ? 285 : 330;
     const accelerated=gpu&&!gpu.software;
-    const pixelBudget=accelerated?(compact?1950000:2050000):1750000;
+    const pixelBudget=accelerated
+      ? (compact?1950000:detailFrame?3400000:2220000)
+      : (!gpu&&detailFrame?2200000:1750000);
     const maxScale=accelerated?2.45:gpu?2.20:1.9;
     const paintScale=Math.max(1,Math.min(density,maxScale,Math.sqrt(pixelBudget/(width*bufferHeight))));
     const layer=gpu?canvas:fallback;
@@ -369,7 +373,7 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
     else {
       if (!ctx) return;
       ctx.setTransform(backingWidth/width,0,0,backingHeight/height,0,0);
-      ctx.imageSmoothingQuality='medium';
+      ctx.imageSmoothingQuality=detailFrame?'high':'medium';
       ctx.clearRect(0,0,width,height);
       ctx.save();
       if (arrival>.002) phoneClip(ctx,width,height,arrival,desktop);
@@ -379,7 +383,7 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
       const texture = getCardTexture(nodes[i],2.30);
       if (!texture) continue;
       const curve = reverse ? 0 : deformation * (gpu?Math.min(1,area/3800):range(area,1000,4600));
-      const colorDepth = depthFade*.46*Math.max(0,Math.min(1,(-placement.z-65)/620));
+      const colorDepth = depthFade*(desktop?.34:.46)*Math.max(0,Math.min(1,(-placement.z-65)/620));
       const alpha=progress<13 ? (desktop ? range(placement.o,.015,.40) : 1) : placement.o;
       const at=curve>.003
         ? projection(placement,width,height,cardWidth,cardHeight,curve,Math.sin((i%5-2)*.42+progress*.21))

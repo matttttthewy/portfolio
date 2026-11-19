@@ -78,14 +78,17 @@ function gridPose(i, w, h) {
 const focusOrder = [
   'mobility', 'module', 'freshman', 'yagodnoe', 'initiation', 'science', 'kontur', 'dance',
 ].map(id => achievements.findIndex(item => item.id === id));
+const overviewStop = 7.85;
+const lastFocusStop = OPENING_END + focusOrder.length;
+const presentationTolerance = .055;
 const presentationStops = [
-  0, 1.92, 3.52, 5.13, 7.85, // Opening, scattered cards, two ring poses, and the overview.
+  0, overviewStop,
   ...focusOrder.map((_, index) => OPENING_END + 1 + index),
-  ...[14, 15, 16, 17, 18, END].map(progress => OPENING_END + progress - 4),
+  SCROLL_END,
 ];
 
 export function presentationDestination(scroll, direction, unit, maxScroll) {
-  const tolerance = unit * .055;
+  const tolerance = unit * presentationTolerance;
   const stops = presentationStops.map(stop => Math.min(stop * unit, maxScroll));
   if (maxScroll > stops.at(-1) + tolerance) stops.push(maxScroll);
   if (direction > 0) return stops.find(stop => stop > scroll + tolerance) ?? null;
@@ -93,6 +96,14 @@ export function presentationDestination(scroll, direction, unit, maxScroll) {
     if (stops[index] < scroll - tolerance) return stops[index];
   }
   return null;
+}
+
+export function presentationDuration(from, to) {
+  const start = Math.min(from, to), end = Math.max(from, to);
+  if (end<=overviewStop+presentationTolerance) return (end-start)*920;
+  if (start>=lastFocusStop-presentationTolerance && end<=SCROLL_END+presentationTolerance)
+    return (end-start)*1180;
+  return 0;
 }
 
 const focusSlots = [

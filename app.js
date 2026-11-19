@@ -3,7 +3,7 @@ import {startLoader} from './loader.mjs';
 import {createPhoneRenderer} from './mobile-cards.mjs';
 import {paintBackdrop} from './background.mjs';
 import {achievements} from './achievements.js';
-import {END,OPENING_END,SCROLL_END,clamp,mix,range,storyProgress,cardPose,focusState,openingPose,openingDrift,pickCard,transform,presentationDestination} from './motion.mjs';
+import {END,OPENING_END,SCROLL_END,clamp,mix,range,storyProgress,cardPose,focusState,openingPose,openingDrift,pickCard,transform,presentationDestination,presentationDuration} from './motion.mjs';
 
 const $=id=>document.getElementById(id);
 const root=document.documentElement, stage=$('viewport'), cards=$('cards');
@@ -53,9 +53,19 @@ function cancelPresentation() {
   presentationPauseUntil=0;
 }
 
-function advancePresentation(now,reduced) {
+function advancePresentation(now,reduced,frameMs) {
   if (presentationMove) {
-    const {top,deadline}=presentationMove;
+    const {top,deadline,sequence}=presentationMove;
+    if (sequence) {
+      // Drive the existing scroll timeline through every scene in the sequence.
+      sequence.elapsed+=Math.min(frameMs,120);
+      const time=reduced?1:clamp(sequence.elapsed/sequence.duration);
+      const eased=mix(time,range(time,0,1),.45);
+      scrollTo({top:mix(sequence.from,top,eased),behavior:'instant'});
+      current=target=scrollTarget();
+      if (time<1) return;
+      presentationMove.sequence=null;
+    }
     const reachedScroll=Math.abs(scrollY-top)<=1.5;
     if (reachedScroll&&Math.abs(current-clamp(top/unit,0,SCROLL_END))<.018) {
       presentationMove=null;
@@ -69,9 +79,11 @@ function advancePresentation(now,reduced) {
   const maxScroll=document.scrollingElement.scrollHeight-root.clientHeight;
   const top=presentationDestination(scrollY,presentationQueue.shift(),unit,maxScroll);
   if (top===null) return;
-  presentationMove={top,deadline:now+2400};
-  // The pinned scene already interpolates its own motion. The footer also moves on the page.
-  const crossesFooter=Math.max(scrollY,top)>sceneLength+1.5;
+  const from=scrollY;
+  const crossesFooter=Math.max(from,top)>sceneLength+1.5;
+  const duration=!reduced&&!crossesFooter?presentationDuration(from/unit,top/unit):0;
+  presentationMove={top,deadline:now+duration+2400,sequence:duration>0?{from,duration,elapsed:0}:null};
+  if (presentationMove.sequence) return;
   scrollTo({top,behavior:!reduced&&crossesFooter?'smooth':'instant'});
 }
 
@@ -162,20 +174,22 @@ addEventListener('blur',()=>{pointer=null});
 const displayTitle=item=>item.title.replace(/-\n/g,'-').replaceAll('\n',' ');
 const easeOpacity=(el,v)=>{el.style.opacity=clamp(v).toFixed(4)};
 function render(now){
-  const dt=Math.min((now-last)/1000,phoneStage?.10:.05);
+  const frameMs=now-last;
+  const dt=Math.min(frameMs/1000,phoneStage?.10:.05);
   last=now;
   const reduced=motionPreference.matches;
   const afterStage=scrollY>sceneLength+h*.035;
-  const atEnd=target===SCROLL_END;
   const followStep=phoneStage||presentationMove?dt:Math.min(dt,.028);
-  const follow=reduced || (afterStage && atEnd && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*(phoneStage?22:13));
+  const follow=reduced || (afterStage && target===SCROLL_END && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*(phoneStage?22:13));
   current=Math.abs(target-current)<.00005 ? target : mix(current,target,follow);
-  advancePresentation(now,reduced);
+  advancePresentation(now,reduced,frameMs);
+  const atEnd=target===SCROLL_END;
   const p=storyProgress(current),arrival=range(p,18.8,20);
   // Keep the same card surface from the opening through the final gallery.
   const desktopCanvas=!phoneStage&&webKitDesktop&&phoneRenderer!==null;
   const galleryVisible=scrollY<sceneLength+h*.65&&!document.hidden;
   const settled=p>19.985&&atEnd;
+  const detailFrame=desktopCanvas&&(settled || !presentationMove&&Math.abs(target-current)<.012&&now-lastScroll>180);
   const galleryInteractive=settled;
   const idle=!reduced&&galleryVisible&&galleryInteractive&&!drag&&now-lastInteraction>2600;
   idleSpeed=idle ? mix(idleSpeed,.10,1-Math.exp(-dt*3)) : 0;
@@ -195,7 +209,7 @@ function render(now){
   const pauseFlutter=!reduced&&current>0&&current<5.09&&sinceScroll<1.24;
   const canHover=!usePhoneCanvas&&(!desktopCanvas||settled)&&pointer&&!reduced&&ready&&!drag&&now-lastInteraction>260;
   const hoverPosition=canHover?`${pointer.x}:${pointer.y}`:'';
-  const signature=`${current}:${w}:${h}:${angle}:${target}:${scrollY}:${hoverPosition}`;
+  const signature=`${current}:${w}:${h}:${angle}:${target}:${scrollY}:${hoverPosition}:${detailFrame}`;
   if (signature===previousScene&&!pauseFlutter&&!lights.some(light=>light.strength>.002&&light.strength<.998)) {
     requestAnimationFrame(render);
     return;
@@ -294,7 +308,7 @@ function render(now){
     bendCard(el,onScreen?deformation:0,Math.sin((i%5-2)*.42+p*.21),detail,light);
   });
   if (desktopCanvas||usePhoneCanvas) {
-    phoneRenderer.draw(nodes,poses,p,arrival,deformation,focusIndex,focusStrength,desktopCanvas?lights:null);
+    phoneRenderer.draw(nodes,poses,p,arrival,deformation,focusIndex,focusStrength,desktopCanvas?lights:null,detailFrame);
   }
 
   const gridStrength=current<OPENING_END ? range(current,7.04,7.39) : 1-range(p,3.26,3.53);
