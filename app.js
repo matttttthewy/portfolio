@@ -82,7 +82,13 @@ function advancePresentation(now,reduced,frameMs) {
   const from=scrollY;
   const crossesFooter=Math.max(from,top)>sceneLength+1.5;
   const duration=!reduced&&!crossesFooter?presentationDuration(from/unit,top/unit):0;
-  presentationMove={top,deadline:now+duration+2400,sequence:duration>0?{from,duration,elapsed:0}:null};
+  presentationMove={
+    top,
+    deadline:now+duration+2400,
+    sequence:duration>0?{from,duration,elapsed:0}:null,
+    // Only the short, pinned moves between the overview and the close-ups use this easing.
+    followScale:!crossesFooter && duration===0 ? .8 : 1,
+  };
   if (presentationMove.sequence) return;
   scrollTo({top,behavior:!reduced&&crossesFooter?'smooth':'instant'});
 }
@@ -180,7 +186,8 @@ function render(now){
   const reduced=motionPreference.matches;
   const afterStage=scrollY>sceneLength+h*.035;
   const followStep=phoneStage||presentationMove?dt:Math.min(dt,.028);
-  const follow=reduced || (afterStage && target===SCROLL_END && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*(phoneStage?22:13));
+  const followRate=(phoneStage?22:13)*(presentationMove?.followScale??1);
+  const follow=reduced || (afterStage && target===SCROLL_END && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*followRate);
   current=Math.abs(target-current)<.00005 ? target : mix(current,target,follow);
   advancePresentation(now,reduced,frameMs);
   const atEnd=target===SCROLL_END;
