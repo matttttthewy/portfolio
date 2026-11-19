@@ -31,7 +31,7 @@ let idleSpeed=0, driftTime=0;
 let lastEffect=-1, lastFocus=-1, lastGallery=-1;
 let previousScene='';
 let lastBackdrop=-Infinity, lastBackdropSize='', backdropWasLight=false;
-let phoneStage=false, phoneRenderer=null, usePhoneCanvas=false, frontCard=null;
+let phoneStage=false, phoneRenderer=null, usePhoneCanvas=false;
 let lastBendPaint=-Infinity;
 let w=0,h=innerHeight,unit=500,sceneLength=SCROLL_END*unit;
 let target=0,current=0,last=performance.now(),angle=0,angleTarget=0,ready=false;
@@ -138,11 +138,12 @@ function render(now){
     backdropWasLight=lightBackdrop;
   }
 
-  const signature=`${current}:${w}:${h}:${angle}:${target}:${scrollY}`;
   const sinceScroll=(now-lastScroll)/1000;
   const pauseFlutter=!reduced&&current>0&&current<5.09&&sinceScroll<1.24;
   const canHover=!usePhoneCanvas&&(!desktopCanvas||settled)&&pointer&&!reduced&&ready&&!drag&&now-lastInteraction>260;
-  if (signature===previousScene&&!canHover&&!pauseFlutter&&!lights.some(light=>light.strength>.002)) {
+  const hoverPosition=canHover?`${pointer.x}:${pointer.y}`:'';
+  const signature=`${current}:${w}:${h}:${angle}:${target}:${scrollY}:${hoverPosition}`;
+  if (signature===previousScene&&!pauseFlutter&&!lights.some(light=>light.strength>.002&&light.strength<.998)) {
     requestAnimationFrame(render);
     return;
   }
@@ -191,26 +192,8 @@ function render(now){
   stage.dataset.galleryAngle=angle.toFixed(5);
 
   const {index:focusIndex,strength:focusStrength}=focusState(p);
-  const frontIndex=focusStrength>.16?focusIndex:-1;
-  const nextFront=usePhoneCanvas && frontIndex>=0 && nodes[frontIndex].firstElementChild.classList.contains('has-cover')
-    ? nodes[frontIndex] : null;
-  if (frontCard!==nextFront) {
-    frontCard?.removeAttribute('data-phone-front');
-    frontCard=nextFront;
-    if (frontCard) {
-      frontCard.setAttribute('data-phone-front','');
-      frontCard.hidden=false;
-      frontCard.style.opacity='1';
-      frontCard.style.borderRadius='4px';
-      frontCard.style.removeProperty('--depth-shade');
-      frontCard.style.setProperty('--light-alpha','0');
-    }
-  }
-  if (frontCard) frontCard.style.transform=transform(poses[frontIndex]);
-
   const lightFollow=1-Math.exp(-dt*11);
-  if (usePhoneCanvas) phoneRenderer.draw(nodes,poses,p,arrival,deformation,frontIndex,!!frontCard);
-  else nodes.forEach((el,i)=>{
+  if (!usePhoneCanvas) nodes.forEach((el,i)=>{
     const pose=poses[i], light=lights[i];
     const visiblyPresent=pose.o>=.002;
     if (!visiblyPresent&&(desktopCanvas||el.hidden)) {
@@ -220,6 +203,7 @@ function render(now){
     const isHit=hit?.index===i;
     light.strength=mix(light.strength,isHit?1:0,lightFollow);
     if (light.strength<.002) light.strength=0;
+    if (light.strength>.998) light.strength=1;
     if (isHit) {
       light.x=mix(light.x,hit.x,lightFollow);
       light.y=mix(light.y,hit.y,lightFollow);
@@ -256,7 +240,9 @@ function render(now){
     const detail=Math.max(1.18,projection*pose.s*1.32*Math.min(devicePixelRatio||1,2.4));
     bendCard(el,onScreen?deformation:0,Math.sin((i%5-2)*.42+p*.21),detail,light);
   });
-  if (desktopCanvas) phoneRenderer.draw(nodes,poses,p,arrival,deformation,focusIndex,false,{lights,focusStrength});
+  if (desktopCanvas||usePhoneCanvas) {
+    phoneRenderer.draw(nodes,poses,p,arrival,deformation,focusIndex,focusStrength,desktopCanvas?lights:null);
+  }
 
   const gridStrength=current<OPENING_END ? range(current,7.04,7.39) : 1-range(p,3.26,3.53);
   easeOpacity(gridCopy,gridStrength);
@@ -286,10 +272,10 @@ function render(now){
   easeOpacity(effectCopy,strength);
   stage.toggleAttribute('data-effects-copy',strength>.001);
   stage.style.setProperty('--copy-clearance',(strength*.98).toFixed(3));
-  easeOpacity(flareLayer,Math.pow(Math.max(0,1-Math.abs(p-16.5)/.8),2)*(desktopCanvas?.22:.62));
+  easeOpacity(flareLayer,Math.pow(Math.max(0,1-Math.abs(p-16.5)/.8),2)*.22);
   skyLayer.style.opacity=arrival.toFixed(4);
   skyLayer.style.transform=`scale(${mix(1.13,1,arrival)})`;
-  const thoughtOpacity=range(p,19.78,19.96)*range(storyProgress(target),19.78,19.96);
+  const thoughtOpacity=range(p,19.78,19.96);
   easeOpacity(thought,thoughtOpacity);
   thought.inert=thoughtOpacity<.99;
   thought.style.visibility=thoughtOpacity>0?'visible':'hidden';
@@ -315,8 +301,7 @@ requestAnimationFrame(render);
 zone.addEventListener('wheel',e=>{
   if (current<SCROLL_END-.015||e.ctrlKey) return;
   const horizontal=Math.abs(e.deltaX)>Math.abs(e.deltaY);
-  if (!horizontal&&!e.shiftKey&&scrollY>sceneLength+8) return;
-  if (!horizontal&&!e.shiftKey&&e.deltaY>0&&e.clientY-zone.getBoundingClientRect().top>zone.clientHeight*.78) return;
+  if (!horizontal&&!e.shiftKey) return;
   e.preventDefault();
   lastInteraction=performance.now();
   const delta=horizontal?e.deltaX:e.deltaY;
@@ -383,7 +368,18 @@ $('home').addEventListener('click',e=>{
   e.preventDefault();
   scrollTo({top:0,behavior:motionPreference.matches?'instant':'smooth'});
 });
-document.fonts.ready.then(fitTitles);
+document.fonts.ready.then(()=>{
+  fitTitles();
+  if (!phoneRenderer) return;
+  const pending=[...nodes];
+  function prepareCover() {
+    if (ready||target>0||document.hidden||!pending.length) return;
+    const node=pending.shift();
+    if (!phoneRenderer.prepare(node)) pending.push(node);
+    requestAnimationFrame(prepareCover);
+  }
+  requestAnimationFrame(prepareCover);
+});
 startLoader(()=>{ready=true;previousScene='';},phoneStage);
 
 const thoughtPreview=$('thought-preview');

@@ -39,7 +39,6 @@
 .resume-link {
   display:inline-flex;
   align-items:center;
-  gap:.5em;
   flex-shrink:0;
   min-height:44px;
   padding:0 2px 0 10px;
@@ -47,7 +46,6 @@
   font-size:13px;
   font-weight:650;
 }
-.resume-link span {color:#775916}
 .resume-link:hover {color:var(--ink);text-decoration:underline;text-underline-offset:.25em}
 .resume-link:focus-visible {outline-offset:2px}
 .resume-link:active {color:#775916}
@@ -381,17 +379,8 @@
 [data-phone-stage]:not([data-phone-renderer]) [data-gallery-framing] #card-space {
   clip-path:inset(calc(11% * var(--frame)) calc(1.4% * var(--frame)) calc(50% * var(--frame)) round calc(27px * var(--frame)));
 }
-[data-phone-renderer] #cards {
-  transform-style:flat;
-  perspective:1100px;
-  perspective-origin:50% 47%;
-}
-[data-phone-renderer] #cards > .card:not([data-phone-front]) {display:none}
-[data-desktop-canvas] #cards {display:none}
+:is([data-phone-renderer],[data-desktop-canvas]) #cards {display:none}
 [data-desktop-canvas] #card-space {perspective:none;clip-path:none}
-@media(max-width:699.99px) {
-  [data-phone-renderer] #cards {perspective:900px}
-}
 :is([data-phone-renderer],[data-desktop-canvas]) .phone-raster:not([hidden]) {
   display:block;
   position:absolute;

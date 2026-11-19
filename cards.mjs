@@ -117,9 +117,9 @@ function buildTexture(model, density) {
   model.uploadTexture = true;
 }
 
-export function getCardTexture(node,density) {
+export function getCardTexture(node,density,onlyWithCover=false) {
   const model=cardModels.get(node);
-  if (!model.dimensions) return null;
+  if (!model.dimensions||onlyWithCover&&!model.imageReady) return null;
   if (model.dirty || !model.texture || model.textureDensity!==density) buildTexture(model,density);
   return model.texture;
 }
@@ -247,7 +247,7 @@ function paintBendColumns(model, intensity, direction, highlight, padding) {
   const sourceAt = x => Math.asin(Math.max(-edge,Math.min(edge,x/bufferWidth-.5)) * curvature) / curvature;
   const left = Math.floor(bufferWidth * (.5-edge)), right = Math.ceil(bufferWidth * (.5+edge));
   let start = sourceAt(left);
-  const stripWidth = Math.max(2, Math.ceil(bufferWidth / 128));
+  const stripWidth = Math.max(2, Math.ceil(bufferWidth / 44));
   for (let x=left; x<right; x+=stripWidth) {
     const span = Math.min(stripWidth,right-x);
     const end = sourceAt(x+span);
