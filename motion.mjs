@@ -78,6 +78,23 @@ function gridPose(i, w, h) {
 const focusOrder = [
   'mobility', 'module', 'freshman', 'yagodnoe', 'initiation', 'science', 'kontur', 'dance',
 ].map(id => achievements.findIndex(item => item.id === id));
+const presentationStops = [
+  0, 1.92, 3.52, 5.13, 7.85, // Opening, scattered cards, two ring poses, and the overview.
+  ...focusOrder.map((_, index) => OPENING_END + 1 + index),
+  ...[14, 15, 16, 17, 18, END].map(progress => OPENING_END + progress - 4),
+];
+
+export function presentationDestination(scroll, direction, unit, maxScroll) {
+  const tolerance = unit * .055;
+  const stops = presentationStops.map(stop => Math.min(stop * unit, maxScroll));
+  if (maxScroll > stops.at(-1) + tolerance) stops.push(maxScroll);
+  if (direction > 0) return stops.find(stop => stop > scroll + tolerance) ?? null;
+  for (let index = stops.length - 1; index >= 0; index--) {
+    if (stops[index] < scroll - tolerance) return stops[index];
+  }
+  return null;
+}
+
 const focusSlots = [
   {x:.202, y:.006, z:127, rx:0, ry:-4, rz:-1, size:1.15, height:.65, phoneX:.008, phoneY:.163, phoneHeight:.43, phoneWidth:.56},
   {x:.244, y:.025, z:186, rx:5, ry:13, rz:6, size:1.18, height:.70, phoneX:.055, phoneY:.164, phoneHeight:.44, phoneWidth:.61},

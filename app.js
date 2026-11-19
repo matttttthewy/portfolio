@@ -3,7 +3,7 @@ import {startLoader} from './loader.mjs';
 import {createPhoneRenderer} from './mobile-cards.mjs';
 import {paintBackdrop} from './background.mjs';
 import {achievements} from './achievements.js';
-import {END,OPENING_END,SCROLL_END,clamp,mix,range,storyProgress,cardPose,focusState,openingPose,openingDrift,pickCard,transform} from './motion.mjs';
+import {END,OPENING_END,SCROLL_END,clamp,mix,range,storyProgress,cardPose,focusState,openingPose,openingDrift,pickCard,transform,presentationDestination} from './motion.mjs';
 
 const $=id=>document.getElementById(id);
 const root=document.documentElement, stage=$('viewport'), cards=$('cards');
@@ -35,6 +35,8 @@ let phoneStage=false, phoneRenderer=null, usePhoneCanvas=false;
 let lastBendPaint=-Infinity;
 let w=0,h=innerHeight,unit=500,sceneLength=SCROLL_END*unit;
 let target=0,current=0,last=performance.now(),angle=0,angleTarget=0,ready=false;
+const presentationQueue=[];
+let presentationMove=null, presentationPauseUntil=0;
 const scrollTarget=()=>scrollY>=sceneLength-.55 ? SCROLL_END : clamp(scrollY/unit,0,SCROLL_END);
 cards.append(...nodes);
 stage.addEventListener('load',()=>{previousScene=''},true);
@@ -43,6 +45,32 @@ function fitTitles() {
   const mobile=w<700;
   fitCardTitles(nodes,mobile?210:250,mobile?285:330,mobile);
   previousScene='';
+}
+
+function cancelPresentation() {
+  presentationQueue.length=0;
+  presentationMove=null;
+  presentationPauseUntil=0;
+}
+
+function advancePresentation(now,reduced) {
+  if (presentationMove) {
+    const {top,deadline}=presentationMove;
+    const reachedScroll=Math.abs(scrollY-top)<=1.5;
+    if (reachedScroll&&Math.abs(current-clamp(top/unit,0,SCROLL_END))<.018) {
+      presentationMove=null;
+      presentationPauseUntil=now+140;
+    } else if (!reachedScroll&&now>=deadline) {
+      cancelPresentation();
+    }
+    return;
+  }
+  if (!presentationQueue.length||now<presentationPauseUntil) return;
+  const maxScroll=document.scrollingElement.scrollHeight-root.clientHeight;
+  const top=presentationDestination(scrollY,presentationQueue.shift(),unit,maxScroll);
+  if (top===null) return;
+  presentationMove={top,deadline:now+2400};
+  scrollTo({top,behavior:reduced?'instant':'smooth'});
 }
 
 function resize(){
@@ -69,6 +97,7 @@ function resize(){
   phoneRenderer?.resize(w,h,devicePixelRatio,phoneStage);
 
   if (!modeChanged && oldWidth===w && oldHeight===h) return;
+  if (modeChanged||oldWidth!==w||!phoneStage) cancelPresentation();
   // Keep scroll progress stable when the mobile browser toolbar expands or collapses.
   if (!phoneStage||modeChanged||oldWidth!==w) {
     unit=Math.max(320,Math.min(600,h*(phoneStage?.62:.65)));
@@ -96,6 +125,27 @@ addEventListener('resize',resize,{passive:true});
 new ResizeObserver(resize).observe(stage);
 coarseScreen.addEventListener?.('change',resize);
 addEventListener('pageshow',resize);
+for (const event of ['wheel','pointerdown','touchstart']) {
+  addEventListener(event,cancelPresentation,{capture:true,passive:true});
+}
+addEventListener('keydown',event=>{
+  if (event.defaultPrevented||event.isComposing||event.altKey||event.ctrlKey||event.metaKey) return;
+  const space=event.key===' '||event.key==='Spacebar';
+  if (event.shiftKey&&!space) return;
+  let direction;
+  if (space) direction=event.shiftKey?-1:1;
+  else if (['PageDown','ArrowRight','ArrowDown'].includes(event.key)) direction=1;
+  else if (['PageUp','ArrowLeft','ArrowUp'].includes(event.key)) direction=-1;
+  else {
+    if (['Home','End','Escape','Tab'].includes(event.key)) cancelPresentation();
+    return;
+  }
+  const control=event.target instanceof Element?event.target:null;
+  if (control?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+  if (space&&control?.closest('a[href], button, summary, [role="button"]')) return;
+  event.preventDefault();
+  if (ready&&!event.repeat) presentationQueue.push(direction);
+});
 addEventListener('scroll',()=>{
   target=scrollTarget();
   if(target<SCROLL_END-.015)angleTarget=angle;
@@ -118,6 +168,7 @@ function render(now){
   const followStep=phoneStage?dt:Math.min(dt,.028);
   const follow=reduced || (afterStage && atEnd && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*(phoneStage?22:13));
   current=Math.abs(target-current)<.00005 ? target : mix(current,target,follow);
+  advancePresentation(now,reduced);
   const p=storyProgress(current),arrival=range(p,18.8,20);
   // Keep the same card surface from the opening through the final gallery.
   const desktopCanvas=!phoneStage&&webKitDesktop&&phoneRenderer!==null;
@@ -366,6 +417,7 @@ $('gallery-prev').addEventListener('click',()=>stepGallery(1));
 $('gallery-next').addEventListener('click',()=>stepGallery(-1));
 $('home').addEventListener('click',e=>{
   e.preventDefault();
+  cancelPresentation();
   scrollTo({top:0,behavior:motionPreference.matches?'instant':'smooth'});
 });
 document.fonts.ready.then(()=>{
