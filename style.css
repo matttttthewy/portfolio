@@ -362,7 +362,8 @@
   perspective-origin:50% 47%;
 }
 [data-phone-renderer] #cards > .card:not([data-phone-front]) {display:none}
-[data-desktop-canvas] #cards > .card:not([data-phone-front]) {display:none}
+[data-desktop-canvas] #cards {display:none}
+[data-desktop-canvas] #card-space {perspective:none;clip-path:none}
 @media(max-width:699.99px) {
   [data-phone-renderer] #cards {perspective:900px}
 }

@@ -119,9 +119,8 @@ function render(now){
   const follow=reduced || (afterStage && atEnd && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*(phoneStage?22:13));
   current=Math.abs(target-current)<.00005 ? target : mix(current,target,follow);
   const p=storyProgress(current),arrival=range(p,18.8,20);
-  // Desktop WebKit draws the focus deck and the bent cards on one shared surface.
-  const desktopCanvas=!phoneStage&&webKitDesktop&&phoneRenderer!==null
-    && p>=3.22&&p<18.88;
+  // Keep the same card surface from the opening through the final gallery.
+  const desktopCanvas=!phoneStage&&webKitDesktop&&phoneRenderer!==null;
   const galleryVisible=scrollY<sceneLength+h*.65&&!document.hidden;
   const settled=p>19.985&&atEnd;
   const galleryInteractive=settled;
@@ -160,12 +159,12 @@ function render(now){
   const repaintBend=deformation>0&&now-lastBendPaint>=31;
   if (repaintBend) lastBendPaint=now;
   const lens=w<700?900:1100;
-  const focusDepth=!usePhoneCanvas&&p>=3.22&&p<13;
+  const focusDepth=!usePhoneCanvas&&!desktopCanvas&&p>=3.22&&p<13;
   const opaqueScene=p<13;
   if (opaqueScene) for (const card of poses) {
     card.s*=mix(.025,1,range(card.o,0,.78));
   }
-  if (!usePhoneCanvas&&!desktopCanvas&&pointer&&!reduced&&ready&&!drag&&now-lastInteraction>260) {
+  if (!usePhoneCanvas&&(!desktopCanvas||settled)&&pointer&&!reduced&&ready&&!drag&&now-lastInteraction>260) {
     const bounds=stage.getBoundingClientRect();
     const local={x:pointer.x-bounds.left,y:pointer.y-bounds.top};
     const clip=arrival*.21;
@@ -192,7 +191,7 @@ function render(now){
 
   const {index:focusIndex,strength:focusStrength}=focusState(p);
   const frontIndex=focusStrength>.16?focusIndex:-1;
-  const nextFront=(usePhoneCanvas||desktopCanvas) && frontIndex>=0 && nodes[frontIndex].firstElementChild.classList.contains('has-cover')
+  const nextFront=usePhoneCanvas && frontIndex>=0 && nodes[frontIndex].firstElementChild.classList.contains('has-cover')
     ? nodes[frontIndex] : null;
   if (frontCard!==nextFront) {
     frontCard?.removeAttribute('data-phone-front');
@@ -209,15 +208,14 @@ function render(now){
   if (frontCard) frontCard.style.transform=transform(poses[frontIndex]);
 
   const lightFollow=1-Math.exp(-dt*11);
-  if (usePhoneCanvas||desktopCanvas) phoneRenderer.draw(nodes,poses,p,arrival,deformation,frontIndex,!!frontCard,desktopCanvas);
+  if (usePhoneCanvas) phoneRenderer.draw(nodes,poses,p,arrival,deformation,frontIndex,!!frontCard);
   else nodes.forEach((el,i)=>{
     const pose=poses[i], light=lights[i];
     const visiblyPresent=pose.o>=.002;
-    if (!visiblyPresent&&el.hidden) {
+    if (!visiblyPresent&&(desktopCanvas||el.hidden)) {
       light.strength=0;
       return;
     }
-    el.hidden=!visiblyPresent;
     const isHit=hit?.index===i;
     light.strength=mix(light.strength,isHit?1:0,lightFollow);
     if (light.strength<.002) light.strength=0;
@@ -231,6 +229,8 @@ function render(now){
       pose.rx+=(.5-light.y)*10*light.strength;
       pose.ry+=(light.x-.5)*9*light.strength;
     }
+    if (desktopCanvas) return;
+    el.hidden=!visiblyPresent;
     el.style.borderRadius=mix(4,20,arrival)+'px';
     el.style.transform=transform(pose);
     const opacity=opaqueScene&&!phoneStage ? range(pose.o,.018,.30) : opaqueScene ? 1 : pose.o;
@@ -255,6 +255,7 @@ function render(now){
     const detail=Math.max(1.18,projection*pose.s*1.32*Math.min(devicePixelRatio||1,2.4));
     bendCard(el,onScreen?deformation:0,Math.sin((i%5-2)*.42+p*.21),detail,light);
   });
+  if (desktopCanvas) phoneRenderer.draw(nodes,poses,p,arrival,deformation,focusIndex,false,{lights,focusStrength});
 
   const gridStrength=current<OPENING_END ? range(current,7.04,7.39) : 1-range(p,3.26,3.53);
   easeOpacity(gridCopy,gridStrength);
@@ -284,7 +285,7 @@ function render(now){
   easeOpacity(effectCopy,strength);
   stage.toggleAttribute('data-effects-copy',strength>.001);
   stage.style.setProperty('--copy-clearance',(strength*.98).toFixed(3));
-  easeOpacity(flareLayer,Math.pow(Math.max(0,1-Math.abs(p-16.5)/.8),2)*.62);
+  easeOpacity(flareLayer,Math.pow(Math.max(0,1-Math.abs(p-16.5)/.8),2)*(desktopCanvas?.22:.62));
   skyLayer.style.opacity=arrival.toFixed(4);
   skyLayer.style.transform=`scale(${mix(1.13,1,arrival)})`;
   const thoughtOpacity=range(p,19.78,19.96)*range(storyProgress(target),19.78,19.96);

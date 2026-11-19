@@ -1,4 +1,5 @@
 import {getCardTexture} from './cards.mjs';
+import {range} from './motion.mjs';
 
 const phoneRadians = degrees => degrees * Math.PI / 180;
 
@@ -118,10 +119,15 @@ uniform vec4 frame;
 uniform float radius;
 uniform float opacity;
 uniform float shade;
+uniform vec3 light;
 varying vec2 surface;
 void main() {
   vec4 color=texture2D(cover,surface);
   color.rgb=mix(color.rgb,vec3(.043,.024,.047)*color.a,shade);
+  if (light.z>.001) {
+    vec2 offset=(surface-light.xy)*vec2(1.0,1.25);
+    color.rgb=mix(color.rgb,vec3(1.0,.90,.77)*color.a,exp(-dot(offset,offset)*12.0)*light.z*.19);
+  }
   float clip=1.0;
   if (radius>.4) {
     vec2 p=gl_FragCoord.xy;
@@ -147,7 +153,7 @@ function phoneGraphics(canvas) {
   gl.linkProgram(program);
   shaders.forEach(shader=>gl.deleteShader(shader));
   if (!gl.getProgramParameter(program,gl.LINK_STATUS)) return null;
-  const uniforms=Object.fromEntries(['frame','radius','opacity','shade'].map(key=>[key,gl.getUniformLocation(program,key)]));
+  const uniforms=Object.fromEntries(['frame','radius','opacity','shade','light'].map(key=>[key,gl.getUniformLocation(program,key)]));
   const buffer=gl.createBuffer();
   const vertices=new Float32Array(5*6*8);
   const textures=new WeakMap();
@@ -196,7 +202,7 @@ function phoneGraphics(canvas) {
     point(b,right,0); point(c,right,1); point(d,left,1);
   }
 
-  function draw(texture,points,at,strips,alpha,shade) {
+  function draw(texture,points,at,strips,alpha,shade,light) {
     let entry=textures.get(texture);
     if (!entry) {
       entry={id:gl.createTexture(),revision:null};
@@ -226,6 +232,7 @@ function phoneGraphics(canvas) {
     gl.bufferData(gl.ARRAY_BUFFER,vertices.subarray(0,used),gl.STREAM_DRAW);
     gl.uniform1f(uniforms.opacity,alpha);
     gl.uniform1f(uniforms.shade,shade);
+    gl.uniform3f(uniforms.light,light?.x??0,light?.y??0,light?.strength??0);
     gl.drawArrays(gl.TRIANGLES,0,used/5);
   }
   return {begin,draw};
@@ -256,7 +263,7 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
 
   }
 
-  function draw(nodes,poses,progress,arrival,deformation,frontIndex,frontOnTop,desktop = false) {
+  function draw(nodes,poses,progress,arrival,deformation,frontIndex,frontOnTop,desktop) {
     const cardWidth = width < 700 ? 210 : 250;
     const cardHeight = width < 700 ? 285 : 330;
     const effectScene=progress>14.70 && progress<18.90;
@@ -277,18 +284,28 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
       if (placement.o < .006) continue;
       const points=projectPhoneCard(placement,width,height,cardWidth,cardHeight);
       const [a,b,,d]=points;
-      const area=(b.x-a.x)*(d.y-a.y)-(b.y-a.y)*(d.x-a.x);
+      const signedArea=(b.x-a.x)*(d.y-a.y)-(b.y-a.y)*(d.x-a.x);
+      const reverse=desktop&&progress<3&&signedArea<0;
+      const area=reverse?-signedArea:signedArea;
       const margin=deformation ? 22 : 2;
       if (area<=2 || points.every(point=>point.x < -margin) || points.every(point=>point.x > width+margin) ||
           points.every(point=>point.y < -margin) || points.every(point=>point.y > height+margin)) continue;
-      visible.push({i,placement,points,area});
+      // The reverse of a turning card shows its cover instead of a blank plane.
+      visible.push({i,placement,points:reverse?[points[1],points[0],points[3],points[2]]:points,area,reverse});
     }
-    visible.sort((left,right)=>{
-      if (left.i===frontIndex) return 1;
-      if (right.i===frontIndex) return -1;
-      return left.placement.z-right.placement.z || left.i-right.i;
-    });
-    const bent = deformation>.035
+    if (desktop) {
+      // Let the foreground priority leave and arrive with the caption.
+      const emphasis=95*range(desktop.focusStrength,0,.65);
+      const depth=card=>card.placement.z+(card.i===frontIndex?emphasis:0);
+      visible.sort((left,right)=>depth(left)-depth(right)||left.i-right.i);
+    } else {
+      visible.sort((left,right)=>{
+        if (left.i===frontIndex) return 1;
+        if (right.i===frontIndex) return -1;
+        return left.placement.z-right.placement.z || left.i-right.i;
+      });
+    }
+    const bent = !desktop&&deformation>.035
       ? new Set([...visible].sort((a,b)=>b.area-a.area).slice(0,gpu?6:2).map(card=>card.i))
       : null;
 
@@ -300,18 +317,21 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
       ctx.save();
       if (arrival>.002) phoneClip(ctx,width,height,arrival,desktop);
     }
-    for (const {i,placement,points,area} of visible) {
+    const depthFade=desktop
+      ? range(progress,3.18,3.66)*(1-range(progress,12.58,13))
+      : Number(progress>=3.2&&progress<13);
+    for (const {i,placement,points,area,reverse} of visible) {
       const texture = getCardTexture(nodes[i],2.30);
       if (!texture) continue;
-      const curve = bent?.has(i) ? deformation * Math.min(1,area / 3800) : 0;
-      const colorDepth = progress>=3.2 && progress<13 ? .46*Math.max(0,Math.min(1,(-placement.z-65)/620)) : 0;
-      const alpha=progress<13 ? (desktop ? Math.min(1,placement.o/.30) : 1) : placement.o;
-      const at=curve>.035
+      const curve = !reverse&&(desktop||bent?.has(i)) ? deformation * Math.min(1,area / 3800) : 0;
+      const colorDepth = depthFade*.46*Math.max(0,Math.min(1,(-placement.z-65)/620));
+      const alpha=progress<13 ? (desktop ? range(placement.o,.015,.40) : 1) : placement.o;
+      const at=curve>(desktop?.006:.035)
         ? projection(placement,width,height,cardWidth,cardHeight,curve,Math.sin((i%5-2)*.42+progress*.21))
         : null;
       const strips=area>22000 ? (gpu?8:5) : 4;
       if (gpu) {
-        gpu.draw(texture,points,at,strips,alpha,colorDepth);
+        gpu.draw(texture,points,at,strips,alpha,colorDepth,desktop?.lights[i]);
         continue;
       }
 
