@@ -70,7 +70,9 @@ function advancePresentation(now,reduced) {
   const top=presentationDestination(scrollY,presentationQueue.shift(),unit,maxScroll);
   if (top===null) return;
   presentationMove={top,deadline:now+2400};
-  scrollTo({top,behavior:reduced?'instant':'smooth'});
+  // The pinned scene already interpolates its own motion. The footer also moves on the page.
+  const crossesFooter=Math.max(scrollY,top)>sceneLength+1.5;
+  scrollTo({top,behavior:!reduced&&crossesFooter?'smooth':'instant'});
 }
 
 function resize(){
@@ -165,7 +167,7 @@ function render(now){
   const reduced=motionPreference.matches;
   const afterStage=scrollY>sceneLength+h*.035;
   const atEnd=target===SCROLL_END;
-  const followStep=phoneStage?dt:Math.min(dt,.028);
+  const followStep=phoneStage||presentationMove?dt:Math.min(dt,.028);
   const follow=reduced || (afterStage && atEnd && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*(phoneStage?22:13));
   current=Math.abs(target-current)<.00005 ? target : mix(current,target,follow);
   advancePresentation(now,reduced);
