@@ -141,7 +141,8 @@ function render(now){
   const signature=`${current}:${w}:${h}:${angle}:${target}:${scrollY}`;
   const sinceScroll=(now-lastScroll)/1000;
   const pauseFlutter=!reduced&&current>0&&current<5.09&&sinceScroll<1.24;
-  if (signature===previousScene&&(!pointer||usePhoneCanvas)&&!pauseFlutter&&!lights.some(light=>light.strength>.002)) {
+  const canHover=!usePhoneCanvas&&(!desktopCanvas||settled)&&pointer&&!reduced&&ready&&!drag&&now-lastInteraction>260;
+  if (signature===previousScene&&!canHover&&!pauseFlutter&&!lights.some(light=>light.strength>.002)) {
     requestAnimationFrame(render);
     return;
   }
@@ -164,7 +165,7 @@ function render(now){
   if (opaqueScene) for (const card of poses) {
     card.s*=mix(.025,1,range(card.o,0,.78));
   }
-  if (!usePhoneCanvas&&(!desktopCanvas||settled)&&pointer&&!reduced&&ready&&!drag&&now-lastInteraction>260) {
+  if (canHover) {
     const bounds=stage.getBoundingClientRect();
     const local={x:pointer.x-bounds.left,y:pointer.y-bounds.top};
     const clip=arrival*.21;
