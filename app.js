@@ -66,7 +66,7 @@ function resize(){
   h=phoneStage?(stage.clientHeight||innerHeight):innerHeight;
   usePhoneCanvas=phoneStage && phoneRenderer!==null;
   root.toggleAttribute('data-phone-renderer',usePhoneCanvas);
-  phoneRenderer?.resize(w,h,devicePixelRatio);
+  phoneRenderer?.resize(w,h,devicePixelRatio,phoneStage);
 
   if (!modeChanged && oldWidth===w && oldHeight===h) return;
   // Keep scroll progress stable when the mobile browser toolbar expands or collapses.

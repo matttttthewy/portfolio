@@ -43,7 +43,7 @@ function outline(ctx, points) {
   ctx.closePath();
 }
 
-function drawPhoneStrip(ctx, texture, left, right, topLeft, topRight, bottomRight, bottomLeft, approximate = false) {
+function drawPhoneStrip(ctx, texture, left, right, topLeft, topRight, bottomRight, bottomLeft) {
   const {width,height} = texture;
   const sx = width * left;
   const sw = width * (right - left);
@@ -52,7 +52,7 @@ function drawPhoneStrip(ctx, texture, left, right, topLeft, topRight, bottomRigh
   const discrepancy = Math.abs(topRight.x + bottomLeft.x - topLeft.x - bottomRight.x)
     + Math.abs(topRight.y + bottomLeft.y - topLeft.y - bottomRight.y);
 
-  if (approximate || discrepancy < 1.15) {
+  if (discrepancy < 1.15) {
     ctx.save();
     ctx.transform(topX,topY,sideX,sideY,topLeft.x,topLeft.y);
     ctx.drawImage(texture,sx,0,sw,height,0,0,1,1);
@@ -105,17 +105,24 @@ function phoneClip(ctx,width,height,arrival,desktop) {
 const phoneVertex = `
 attribute vec3 point;
 attribute vec2 uv;
+uniform float depthBoost;
 varying vec2 surface;
 void main() {
   surface=uv;
-  gl_Position=vec4(point.xy,0.0,point.z);
+  float distance=max(.19,point.z-depthBoost);
+  gl_Position=vec4(point.xy,(1.0-.27/distance)*point.z,point.z);
 }
 `;
 
 const phoneFragment = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 uniform sampler2D cover;
 uniform vec4 frame;
+uniform vec2 frameScale;
 uniform float radius;
 uniform float opacity;
 uniform float shade;
@@ -131,16 +138,22 @@ void main() {
   float clip=1.0;
   if (radius>.4) {
     vec2 p=gl_FragCoord.xy;
-    vec2 corner=max(frame.xy+radius-p,p-frame.zw+radius);
+    vec2 inset=frameScale*radius;
+    vec2 corner=max(frame.xy+inset-p,p-frame.zw+inset)/frameScale;
     float distance=length(max(corner,0.0))-radius;
-    clip=1.0-smoothstep(-.6,.6,distance);
+    float edge=.6/frameScale.x;
+    clip=1.0-smoothstep(-edge,edge,distance);
   }
-  gl_FragColor=color*opacity*clip;
+  vec4 pixel=color*opacity*clip;
+  if (pixel.a<.015) discard;
+  gl_FragColor=pixel;
 }
 `;
 
 function phoneGraphics(canvas) {
-  const gl=canvas.getContext('webgl',{alpha:true,antialias:false,depth:false,stencil:false,premultipliedAlpha:true});
+  const settings={alpha:true,antialias:false,depth:true,stencil:false,premultipliedAlpha:true};
+  const webgl2=canvas.getContext('webgl2',settings);
+  const gl=webgl2||canvas.getContext('webgl',settings);
   if (!gl) return null;
   const program=gl.createProgram();
   const shaders=[[gl.VERTEX_SHADER,phoneVertex],[gl.FRAGMENT_SHADER,phoneFragment]].map(([kind,code])=>{
@@ -153,12 +166,17 @@ function phoneGraphics(canvas) {
   gl.linkProgram(program);
   shaders.forEach(shader=>gl.deleteShader(shader));
   if (!gl.getProgramParameter(program,gl.LINK_STATUS)) return null;
-  const uniforms=Object.fromEntries(['frame','radius','opacity','shade','light'].map(key=>[key,gl.getUniformLocation(program,key)]));
+  const uniforms=Object.fromEntries(['frame','frameScale','radius','opacity','shade','light','depthBoost'].map(key=>[key,gl.getUniformLocation(program,key)]));
+  const info=gl.getExtension('WEBGL_debug_renderer_info');
+  const software=info&&/swiftshader|llvmpipe|software/i.test(gl.getParameter(info.UNMASKED_RENDERER_WEBGL));
+  const anisotropy=webgl2&&!software&&gl.getExtension('EXT_texture_filter_anisotropic');
+  const samples=anisotropy?Math.min(2,gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT)):1;
   const buffer=gl.createBuffer();
   const batches=[];
   const textures=new WeakMap();
   let vertices=new Float32Array(0);
   let width,height,used;
+  let opacityValue,shadeValue,boostValue,highlightOn=false;
 
   gl.useProgram(program);
   gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
@@ -171,9 +189,11 @@ function phoneGraphics(canvas) {
   gl.vertexAttribPointer(uv,2,gl.FLOAT,false,20,12);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
   gl.clearColor(0,0,0,0);
 
-  function begin(viewWidth,viewHeight,scale,arrival,desktop,count) {
+  function begin(viewWidth,viewHeight,arrival,desktop,count) {
     width=viewWidth;
     height=viewHeight;
     if (vertices.length<count*5*6*8) vertices=new Float32Array(count*5*6*8);
@@ -182,7 +202,8 @@ function phoneGraphics(canvas) {
     const w=canvas.width,h=canvas.height;
     gl.viewport(0,0,w,h);
     gl.disable(gl.SCISSOR_TEST);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.depthMask(true);
+    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     const {edge,upper,lower,radius}=phoneFrame(width,desktop);
     const left=Math.round(w*edge*arrival);
     const bottom=Math.round(h*lower*arrival);
@@ -190,7 +211,8 @@ function phoneGraphics(canvas) {
     gl.enable(gl.SCISSOR_TEST);
     gl.scissor(left,bottom,w-2*left,top-bottom);
     gl.uniform4f(uniforms.frame,left,bottom,w-left,top);
-    gl.uniform1f(uniforms.radius,radius*scale*arrival);
+    gl.uniform2f(uniforms.frameScale,w/width,h/height);
+    gl.uniform1f(uniforms.radius,radius*arrival);
   }
 
   function point(p,u,v) {
@@ -214,17 +236,18 @@ function phoneGraphics(canvas) {
       gl.bindTexture(gl.TEXTURE_2D,entry.id);
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,webgl2?gl.LINEAR_MIPMAP_LINEAR:gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      if (anisotropy) gl.texParameterf(gl.TEXTURE_2D,anisotropy.TEXTURE_MAX_ANISOTROPY_EXT,samples);
     } else gl.bindTexture(gl.TEXTURE_2D,entry.id);
     if (entry.revision!==texture.dataset.revision) {
       gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,texture);
+      if (webgl2) gl.generateMipmap(gl.TEXTURE_2D);
       entry.revision=texture.dataset.revision;
     }
-
   }
 
-  function draw(texture,points,at,strips,alpha,shade,light) {
+  function draw(texture,points,at,strips,alpha,shade,light,depthBoost) {
     const first=used/5;
     if (at) {
       let a=at(-.5,-.5),d=at(-.5,.5);
@@ -236,21 +259,40 @@ function phoneGraphics(canvas) {
         d=c;
       }
     } else strip(0,1,...points);
-    batches.push({texture,first,count:used/5-first,alpha,shade,light});
+    batches.push({texture,first,count:used/5-first,alpha,shade,light,depthBoost});
+  }
+
+  function paint({texture,first,count,alpha,shade,light,depthBoost}) {
+    bindTexture(texture);
+    if (opacityValue!==alpha) {
+      gl.uniform1f(uniforms.opacity,alpha);
+      opacityValue=alpha;
+    }
+    if (shadeValue!==shade) {
+      gl.uniform1f(uniforms.shade,shade);
+      shadeValue=shade;
+    }
+    if (boostValue!==depthBoost) {
+      gl.uniform1f(uniforms.depthBoost,depthBoost);
+      boostValue=depthBoost;
+    }
+    const hasHighlight=light?.strength>.001;
+    if (hasHighlight||highlightOn) {
+      gl.uniform3f(uniforms.light,light?.x??0,light?.y??0,hasHighlight?light.strength:0);
+      highlightOn=hasHighlight;
+    }
+    gl.drawArrays(gl.TRIANGLES,first,count);
   }
 
   function end() {
     if (!used) return;
     gl.bufferData(gl.ARRAY_BUFFER,vertices.subarray(0,used),gl.STREAM_DRAW);
-    for (const {texture,first,count,alpha,shade,light} of batches) {
-      bindTexture(texture);
-      gl.uniform1f(uniforms.opacity,alpha);
-      gl.uniform1f(uniforms.shade,shade);
-      gl.uniform3f(uniforms.light,light?.x??0,light?.y??0,light?.strength??0);
-      gl.drawArrays(gl.TRIANGLES,first,count);
-    }
+    // Resolve opaque surfaces per pixel, then blend fading cards over the saved depth.
+    for (const batch of batches) if (batch.alpha>=.998) paint(batch);
+    gl.depthMask(false);
+    for (const batch of batches) if (batch.alpha<.998) paint(batch);
   }
-  return {begin,draw,end,bindTexture};
+  return {begin,draw,end,bindTexture,software};
 }
 
 export function createPhoneRenderer(canvas, fallback, redraw) {
@@ -266,16 +308,17 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
     gpu=phoneGraphics(canvas);
     redraw();
   });
-  let width = 0, height = 0, scale = 1;
+  let width=0,height=0,bufferHeight=0,density=1,compact=false;
 
-  function resize(w,h,pixelRatio) {
-    // Spend pixels on legible cards without making the full-screen layer unbounded.
-    const nextScale = Math.max(1,Math.min(pixelRatio||1,2.2,Math.sqrt(1750000/(w*h))));
-    if (w===width && h===height && nextScale===scale) return;
+  function resize(w,h,pixelRatio,phone) {
+    // Mobile browser chrome can resize the viewport several times per scroll gesture.
+    if (w!==width||pixelRatio!==density||phone!==compact||!phone||Math.abs(h-bufferHeight)>bufferHeight*.24) {
+      bufferHeight=h;
+    }
     width=w;
     height=h;
-    scale=nextScale;
-
+    density=pixelRatio||1;
+    compact=phone;
   }
 
   function prepare(node) {
@@ -289,13 +332,15 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
     const desktop=!!lights;
     const cardWidth = width < 700 ? 210 : 250;
     const cardHeight = width < 700 ? 285 : 330;
-    const effectScene=progress>14.70 && progress<18.90;
-    const paintScale=gpu?scale:Math.min(scale,effectScene?1.65:2.05);
+    const accelerated=gpu&&!gpu.software;
+    const pixelBudget=accelerated?(compact?1950000:2050000):1750000;
+    const maxScale=accelerated?2.45:gpu?2.20:1.9;
+    const paintScale=Math.max(1,Math.min(density,maxScale,Math.sqrt(pixelBudget/(width*bufferHeight))));
     const layer=gpu?canvas:fallback;
     canvas.hidden=!gpu;
     fallback.hidden=!!gpu;
     if (!gpu && !ctx) ctx=fallback.getContext('2d');
-    const backingWidth=Math.round(width*paintScale),backingHeight=Math.round(height*paintScale);
+    const backingWidth=Math.round(width*paintScale),backingHeight=Math.round(bufferHeight*paintScale);
     if (layer.width!==backingWidth || layer.height!==backingHeight) {
       layer.width=backingWidth;
       layer.height=backingHeight;
@@ -307,7 +352,7 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
       const points=projectPhoneCard(placement,width,height,cardWidth,cardHeight);
       const [a,b,,d]=points;
       const signedArea=(b.x-a.x)*(d.y-a.y)-(b.y-a.y)*(d.x-a.x);
-      const reverse=desktop&&progress<3&&signedArea<0;
+      const reverse=progress<3&&signedArea<0;
       const area=reverse?-signedArea:signedArea;
       const margin=deformation ? 22 : 2;
       if (area<=2 || points.every(point=>point.x < -margin) || points.every(point=>point.x > width+margin) ||
@@ -320,10 +365,11 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
     const depth=card=>card.placement.z+(card.i===focusIndex?emphasis:0);
     visible.sort((left,right)=>depth(left)-depth(right)||left.i-right.i);
 
-    if (gpu) gpu.begin(width,height,paintScale,arrival,desktop,visible.length);
+    if (gpu) gpu.begin(width,height,arrival,desktop,visible.length);
     else {
       if (!ctx) return;
-      ctx.setTransform(paintScale,0,0,paintScale,0,0);
+      ctx.setTransform(backingWidth/width,0,0,backingHeight/height,0,0);
+      ctx.imageSmoothingQuality='medium';
       ctx.clearRect(0,0,width,height);
       ctx.save();
       if (arrival>.002) phoneClip(ctx,width,height,arrival,desktop);
@@ -335,12 +381,13 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
       const curve = reverse ? 0 : deformation * (gpu?Math.min(1,area/3800):range(area,1000,4600));
       const colorDepth = depthFade*.46*Math.max(0,Math.min(1,(-placement.z-65)/620));
       const alpha=progress<13 ? (desktop ? range(placement.o,.015,.40) : 1) : placement.o;
-      const at=curve>(desktop?.006:.035)
+      const at=curve>.003
         ? projection(placement,width,height,cardWidth,cardHeight,curve,Math.sin((i%5-2)*.42+progress*.21))
         : null;
-      const strips=area>22000 ? (gpu?8:5) : 4;
+      const strips=gpu?8:4;
       if (gpu) {
-        gpu.draw(texture,points,at,strips,alpha,colorDepth,lights?.[i]);
+        const depthBoost=i===focusIndex?emphasis/(width<700?900:1100):0;
+        gpu.draw(texture,points,at,strips,alpha,colorDepth,lights?.[i],depthBoost);
         continue;
       }
 
@@ -354,7 +401,7 @@ export function createPhoneRenderer(canvas, fallback, redraw) {
             at(right-.5,.5),at(left-.5,.5));
         }
       } else {
-        drawPhoneStrip(ctx,texture,0,1,...points,effectScene);
+        drawPhoneStrip(ctx,texture,0,1,...points);
       }
 
       if (colorDepth>.01) {
