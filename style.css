@@ -35,6 +35,25 @@
 #focus p, #grid-copy p {font-weight:500}
 .card h3 {font-weight:760;letter-spacing:-.045em}
 #thought {opacity:0;visibility:hidden;pointer-events:auto}
+.thought-footer {display:flex;align-items:center;justify-content:space-between;gap:12px}
+.resume-link {
+  display:inline-flex;
+  align-items:center;
+  gap:.5em;
+  flex-shrink:0;
+  min-height:44px;
+  padding:0 2px 0 10px;
+  color:#4b474c;
+  font-size:13px;
+  font-weight:650;
+}
+.resume-link span {color:#775916}
+.resume-link:hover {color:var(--ink);text-decoration:underline;text-underline-offset:.25em}
+.resume-link:focus-visible {outline-offset:2px}
+.resume-link:active {color:#775916}
+@media(min-width:700px) {
+  :root:not([data-phone-stage]) #thought {padding-bottom:24px}
+}
 .thought-accent {
   text-decoration:underline;
   text-decoration-skip-ink:none;
@@ -348,6 +367,12 @@
   font-size:clamp(17px,min(7.15vw,4.05dvh),33px);
   line-height:1.24;
   margin:0 0 clamp(10px,2dvh,23px);
+}
+@media (max-height:650px) and (orientation:portrait) {
+  [data-phone-stage] #thought p {
+    font-size:clamp(17px,min(7.15vw,3.5dvh),33px);
+    margin-bottom:clamp(6px,1.5dvh,10px);
+  }
 }
 [data-phone-stage] .thought-accent {
   text-underline-offset:.17em;
