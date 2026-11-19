@@ -416,3 +416,8 @@
 [data-phone-stage] #rail {display:none}
 [data-phone-stage] #story[data-sky] #viewport,
 [data-phone-stage] #thought {background:var(--paper)}
+
+/* Keep the sticky stage's edge on paper where the final quote overlaps it. */
+#viewport[data-desktop-canvas][data-gallery-ready] {background:var(--paper)}
+[data-desktop-canvas][data-gallery-ready] #backdrop {visibility:hidden}
+#story[data-sky]:has(> [data-desktop-canvas]) + #thought {background:var(--paper)}
