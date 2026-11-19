@@ -36,7 +36,8 @@ let lastBendPaint=-Infinity;
 let w=0,h=innerHeight,unit=500,sceneLength=SCROLL_END*unit;
 let target=0,current=0,last=performance.now(),angle=0,angleTarget=0,ready=false;
 const presentationQueue=[];
-let presentationMove=null, presentationPauseUntil=0;
+const presentationArrivalMargin=.018;
+let presenting=false, presentationMove=null, presentationPauseUntil=0;
 const scrollTarget=()=>scrollY>=sceneLength-.55 ? SCROLL_END : clamp(scrollY/unit,0,SCROLL_END);
 cards.append(...nodes);
 stage.addEventListener('load',()=>{previousScene=''},true);
@@ -48,6 +49,7 @@ function fitTitles() {
 }
 
 function cancelPresentation() {
+  presenting=false;
   presentationQueue.length=0;
   presentationMove=null;
   presentationPauseUntil=0;
@@ -60,14 +62,14 @@ function advancePresentation(now,reduced,frameMs) {
       // Drive the existing scroll timeline through every scene in the sequence.
       sequence.elapsed+=Math.min(frameMs,120);
       const time=reduced?1:clamp(sequence.elapsed/sequence.duration);
-      const eased=mix(time,range(time,0,1),.45);
+      const eased=mix(time,range(time,0,1),sequence.easing);
       scrollTo({top:mix(sequence.from,top,eased),behavior:'instant'});
       current=target=scrollTarget();
       if (time<1) return;
       presentationMove.sequence=null;
     }
     const reachedScroll=Math.abs(scrollY-top)<=1.5;
-    if (reachedScroll&&Math.abs(current-clamp(top/unit,0,SCROLL_END))<.018) {
+    if (reachedScroll&&Math.abs(current-clamp(top/unit,0,SCROLL_END))<presentationArrivalMargin) {
       presentationMove=null;
       presentationPauseUntil=now+140;
     } else if (!reachedScroll&&now>=deadline) {
@@ -81,13 +83,18 @@ function advancePresentation(now,reduced,frameMs) {
   if (top===null) return;
   const from=scrollY;
   const crossesFooter=Math.max(from,top)>sceneLength+1.5;
-  const duration=!reduced&&!crossesFooter?presentationDuration(from/unit,top/unit):0;
+  const sequenceDuration=!reduced&&!crossesFooter?presentationDuration(from/unit,top/unit):0;
+  const closeup=!reduced&&!crossesFooter&&sequenceDuration===0;
+  // Add half a second to the former approach time for this scroll distance.
+  const distance=Math.abs(top-from)/unit;
+  const previousRate=(phoneStage?22:13)*.8;
+  const duration=closeup
+    ? 500+1000*Math.max(0,Math.log(distance/presentationArrivalMargin))/previousRate
+    : sequenceDuration;
   presentationMove={
     top,
     deadline:now+duration+2400,
-    sequence:duration>0?{from,duration,elapsed:0}:null,
-    // Only the short, pinned moves between the overview and the close-ups use this easing.
-    followScale:!crossesFooter && duration===0 ? .8 : 1,
+    sequence:duration>0?{from,duration,elapsed:0,easing:closeup?1:.45}:null,
   };
   if (presentationMove.sequence) return;
   scrollTo({top,behavior:!reduced&&crossesFooter?'smooth':'instant'});
@@ -164,7 +171,10 @@ addEventListener('keydown',event=>{
   if (control?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
   if (space&&control?.closest('a[href], button, summary, [role="button"]')) return;
   event.preventDefault();
-  if (ready&&!event.repeat) presentationQueue.push(direction);
+  if (ready&&!event.repeat) {
+    presenting=true;
+    presentationQueue.push(direction);
+  }
 });
 addEventListener('scroll',()=>{
   target=scrollTarget();
@@ -186,8 +196,7 @@ function render(now){
   const reduced=motionPreference.matches;
   const afterStage=scrollY>sceneLength+h*.035;
   const followStep=phoneStage||presentationMove?dt:Math.min(dt,.028);
-  const followRate=(phoneStage?22:13)*(presentationMove?.followScale??1);
-  const follow=reduced || (afterStage && target===SCROLL_END && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*followRate);
+  const follow=reduced || (afterStage && target===SCROLL_END && current<SCROLL_END-1.5) ? 1 : 1-Math.exp(-followStep*(phoneStage?22:13));
   current=Math.abs(target-current)<.00005 ? target : mix(current,target,follow);
   advancePresentation(now,reduced,frameMs);
   const atEnd=target===SCROLL_END;
@@ -196,7 +205,8 @@ function render(now){
   const desktopCanvas=!phoneStage&&webKitDesktop&&phoneRenderer!==null;
   const galleryVisible=scrollY<sceneLength+h*.65&&!document.hidden;
   const settled=p>19.985&&atEnd;
-  const detailFrame=desktopCanvas&&(settled || !presentationMove&&Math.abs(target-current)<.012&&now-lastScroll>180);
+  // Resizing the card canvas at every click resets Safari's drawing buffer.
+  const detailFrame=desktopCanvas&&(presenting || settled || !presentationMove&&Math.abs(target-current)<.012&&now-lastScroll>180);
   const galleryInteractive=settled;
   const idle=!reduced&&galleryVisible&&galleryInteractive&&!drag&&now-lastInteraction>2600;
   idleSpeed=idle ? mix(idleSpeed,.10,1-Math.exp(-dt*3)) : 0;
